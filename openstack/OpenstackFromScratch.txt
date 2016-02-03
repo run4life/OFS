@@ -14,3 +14,12 @@ Build uplink bridge and tunnel bridge
 #ip addr add 10.255.254.100/24 dev br-l3vxlan
 #ip link set dev br-l3vxlan up
 #ip link set dev br-l3vxlan mtu 1600
+
+edit br-l3vxlan interface ip
+#vi /etc/sysconfig/network-scripts/ifcfg-br-l3vxlan
+DEVICE=br-l3vxlan
+IPADDR=10.255.254.100
+NETMASK=255.255.255.0
+BOOTPROTO=none
+ONBOOT=yes
+USERCTL=no
