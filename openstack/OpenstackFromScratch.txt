@@ -1,0 +1,16 @@
+Build uplink bridge and tunnel bridge
+#ovs-vsctl add-br br-uplink
+#ovs-vsctl add-br br-l3vxlan
+#ip link set dev eth1 up
+#ip link set dev eth1 mtu 1600
+#ethtool -K eth1 gro off
+#ethtool -K eth1 lro off
+#ovs-vsctl add-port br-uplink eth1 
+#ovs-vsctl add-port br-vlan patch-to-uplink -- set Interface patch-to-uplink type=patch options:peer=patch-to-vlan
+#ovs-vsctl add-port br-uplink patch-to-vlan -- set Interface patch-to-vlan type=patch options:peer=patch-to-uplink
+#ovs-vsctl add-port br-l3vxlan br-l3vxlan-br-uplink -- set Interface br-l3vxlan-br-uplink type=patch options:peer=br-uplink-br-l3vxlan
+#ovs-vsctl add-port br-uplink br-uplink-br-l3vxlan -- set Interface br-uplink-br-l3vxlan type=patch options:peer=br-l3vxlan-br-uplink
+#ovs-vsctl set port br-uplink-br-l3vxlan tag=4000
+#ip addr add 10.255.254.100/24 dev br-l3vxlan
+#ip link set dev br-l3vxlan up
+#ip link set dev br-l3vxlan mtu 1600
