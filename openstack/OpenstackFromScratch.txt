@@ -1,5 +1,17 @@
 Build GRE tunnel network
 
+
+yum -y install wget openssl-devel kernel-devel
+yum groupinstall "Development Tools"
+adduser ovswitch
+wget http://openvswitch.org/releases/openvswitch-2.4.0.tar.gz
+tar xfz openvswitch-2.4.0.tar.gz
+mkdir -p ~/rpmbuild/SOURCES
+cp openvswitch-2.4.0.tar.gz /home/ovswitch/rpmbuild/SOURCES/
+rpmbuild -bb --without check ~/openvswitch-2.4.0/rhel/openvswitch.spec
+exit
+yum localinstall /home/ovswitch/rpmbuild/RPMS/x86_64/openvswitch-2.4.0-1.x86_64.rpm
+
 --------------------------
 node1(compute node)
 --------------------------
@@ -92,7 +104,9 @@ ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa dnsmasq --no-hosts --no
 
 yum install gcc
 yum install zlib-devel
-
+yum install glib2-devel
+yum install pixman
+yum install pixman-devel
 
 git clone git://git.qemu-project.org/qemu.git
 cd qemu 
