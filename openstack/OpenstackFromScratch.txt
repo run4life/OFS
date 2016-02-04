@@ -1,5 +1,21 @@
 Build GRE tunnel network
 
+virtualbox vms:
+compute node:	centos7		eth0:10.255.255.20(host-only)	eth1:10.255.254.100(host-only)
+network node:	centos7		eth0:10.255.255.21(host-only)	eth1:10.255.254.101(host-only)
+
+iptables -t nat -I POSTROUTING -s 10.255.255.0/24 -j MASQUERADE
+sysctl net.ipv4.ip_forward=1
+
+vim /etc/sysconfig/grub
+net.ifnames=0 biosdevname=0
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+chkconfig NetworkManager off
+ssh-keygen -t dsa -P '' -f /etc/ssh/ssh_host_dsa_key
+ssh-keygen -t rsa -P '' -f /etc/ssh/ssh_host_rsa_key
+vi /etc/selinux/config
+reboot
 
 yum -y install wget openssl-devel kernel-devel
 yum groupinstall "Development Tools"
