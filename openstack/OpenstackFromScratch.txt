@@ -45,22 +45,6 @@ ip tuntap add tap01 mode tap
 ip link set dev tap01 up
 
 
-yum install gcc
-yum install zlib-devel
-
-
-git clone git://git.qemu-project.org/qemu.git
-cd qemu 
-./configure --enable-debug --enable-vnc --enable-werror --target-list="x86_64-softmmu" 
-make -j8 
-sudo make install
-wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img
-wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-kernel
-cp cirros-0.3.4-x86_64-disk.img cirros.img
-cp cirros-0.3.4-x86_64-kernel kernel
-
-qemu-system-x86_64 -nographic -kernel ./kernel -hda cirros.img -append "root=/dev/sda1 console=ttyS0" -net nic -net tap,ifname="tap01",script=no,downscript=no
-
 -------------------------
 node2(network)
 -------------------------
@@ -103,4 +87,22 @@ ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa ip link set tapaaaaaaaa
 ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa ip -4 addr add 10.0.0.3/24 brd 10.0.0.255 scope global dev tapaaaaaaaa-aa
 ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa ip route replace default via 10.0.0.1 dev tapaaaaaaaa-aa
 ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tapaaaaaaaa-aa --except-interface=lo --dhcp-range=set:tag0,10.0.0.6,10.0.0.90,86400s --dhcp-lease-max=256
+
+
+
+yum install gcc
+yum install zlib-devel
+
+
+git clone git://git.qemu-project.org/qemu.git
+cd qemu 
+./configure --enable-debug --enable-vnc --enable-werror --target-list="x86_64-softmmu" 
+make -j8 
+sudo make install
+wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img
+wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-kernel
+cp cirros-0.3.4-x86_64-disk.img cirros.img
+cp cirros-0.3.4-x86_64-kernel kernel
+
+qemu-system-x86_64 -nographic -kernel ./kernel -hda cirros.img -append "root=/dev/sda1 console=ttyS0" -net nic -net tap,ifname="tap01",script=no,downscript=no
 
