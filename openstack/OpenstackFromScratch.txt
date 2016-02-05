@@ -60,6 +60,7 @@ ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,o
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
 
+yum install bridge-utils
 brctl addbr qbr01
 ip link set qbr01 up
 ip link add qvo01 type veth peer name qvb01
