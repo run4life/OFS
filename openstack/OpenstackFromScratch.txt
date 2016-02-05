@@ -71,7 +71,7 @@ ovs-vsctl set port qvo01 tag=1
 
 ip tuntap add tap01 mode tap
 ip link set dev tap01 up
-
+brctl addif qbr01 tap01
 
 -------------------------
 node2(network)
