@@ -8,6 +8,8 @@ compute node:	centos7		eth0:10.255.255.21(host-only)	eth1:10.255.254.101(host-on
 iptables -t nat -I POSTROUTING -s 10.255.255.0/24 -j MASQUERADE
 sysctl net.ipv4.ip_forward=1
 
+vi /etc/hostname
+
 vim /etc/sysconfig/grub
 net.ifnames=0 biosdevname=0
 grub2-mkconfig -o /boot/grub2/grub.cfg
@@ -19,61 +21,17 @@ vi /etc/selinux/config
 reboot
 
 yum -y install wget openssl-devel kernel-devel
-yum groupinstall "Development Tools"
+yum -y groupinstall "Development Tools"
 adduser ovswitch
+su - ovswitch
 wget http://openvswitch.org/releases/openvswitch-2.4.0.tar.gz
 tar xfz openvswitch-2.4.0.tar.gz
 mkdir -p ~/rpmbuild/SOURCES
 cp openvswitch-2.4.0.tar.gz /home/ovswitch/rpmbuild/SOURCES/
 rpmbuild -bb --without check ~/openvswitch-2.4.0/rhel/openvswitch.spec
 exit
-yum localinstall /home/ovswitch/rpmbuild/RPMS/x86_64/openvswitch-2.4.0-1.x86_64.rpm
+yum -y localinstall /home/ovswitch/rpmbuild/RPMS/x86_64/openvswitch-2.4.0-1.x86_64.rpm
 
---------------------------
-node1(compute node)
---------------------------
-ovs-vsctl --timeout=10 -- --if-exists del-port br-int patch-tun
-ovs-vsctl --timeout=10 -- --may-exist add-br br-int
-ovs-vsctl --timeout=10 -- set-fail-mode br-int secure
-
-ovs-ofctl add-flow br-int hard_timeout=0,idle_timeout=0,priority=1,actions=normal
-ovs-ofctl add-flow br-int hard_timeout=0,idle_timeout=0,priority=0,table=22,actions=drop
-
-ovs-vsctl --timeout=10 -- --if-exists del-br br-tun
-ovs-vsctl --timeout=10 -- --may-exist add-br br-tun
-ovs-vsctl --timeout=10 add-port br-int patch-tun -- set Interface patch-tun type=patch options:peer=patch-int
-ovs-vsctl --timeout=10 add-port br-tun patch-int -- set Interface patch-int type=patch options:peer=patch-tun
-
-ovs-ofctl del-flows br-tun
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=1,actions=resubmit(,1)"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,actions=drop"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=1,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00,actions=resubmit(,20)"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=1,dl_dst=01:00:00:00:00:00/01:00:00:00:00:00,actions=resubmit(,21)"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=2,actions=drop"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=3,actions=drop"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=10,actions=learn(table=20,priority=1,hard_timeout=300,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0->NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]->NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=20,actions=resubmit(,21)"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=21,actions=drop"
-
-ovs-vsctl --timeout=10 -- --may-exist add-port br-tun gre-0a060604 -- set Interface gre-0a060604 type=gre options:remote_ip=10.255.254.101 options:local_ip=10.255.254.100 options:in_key=flow options:out_key=flow
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,actions=resubmit(,2)"
-ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
-
-
-yum install bridge-utils
-brctl addbr qbr01
-ip link set qbr01 up
-ip link add qvo01 type veth peer name qvb01
-brctl addif qbr01 qvb01
-ovs-vsctl add-port br-int qvo01
-ip link set qvb01 up
-ip link set qvo01 up
-ovs-vsctl set port qvo01 tag=1
-
-ip tuntap add tap01 mode tap
-ip link set dev tap01 up
-brctl addif qbr01 tap01
 
 -------------------------
 node2(network)
@@ -103,28 +61,63 @@ ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=10,act
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=20,actions=resubmit(,21)"
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=21,actions=drop"
 
-ovs-vsctl --timeout=10 -- --may-exist add-port br-tun gre-0a060605 -- set Interface gre-0a060605 type=gre options:remote_ip=10.255.254.100 options:local_ip=10.255.254.101 options:in_key=flow options:out_key=flow
+ovs-vsctl --timeout=10 -- --may-exist add-port br-tun gre-0a060605 -- set Interface gre-0a060605 type=gre options:remote_ip=10.255.254.101 options:local_ip=10.255.254.100 options:in_key=flow options:out_key=flow
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,actions=resubmit(,2)"
 ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
-ovs-vsctl -- --if-exists del-port tapaaaaaaaa-aa -- add-port br-int tapaaaaaaaa-aa -- set interface tapaaaaaaaa-aa type=internal
-ovs-vsctl --timeout=10 set Port tapaaaaaaaa-aa tag=1
-ip netns add qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa ip link set lo up
-ip link set tapaaaaaaaa-aa netns qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa ip link set tapaaaaaaaa-aa up
-ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa ip -4 addr add 10.0.0.3/24 brd 10.0.0.255 scope global dev tapaaaaaaaa-aa
-ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa ip route replace default via 10.0.0.1 dev tapaaaaaaaa-aa
-ip netns exec qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tapaaaaaaaa-aa --except-interface=lo --dhcp-range=set:tag0,10.0.0.6,10.0.0.90,86400s --dhcp-lease-max=256
+ovs-vsctl -- --if-exists del-port tap01 -- add-port br-int tap01 -- set interface tap01 type=internal
+ovs-vsctl --timeout=10 set Port tap01 tag=1
+ip netns add qdhcp01
+ip netns exec qdhcp01 ip link set lo up
+ip link set tap01 netns qdhcp01
+ip netns exec qdhcp01 ip link set tap01 up
+ip netns exec qdhcp01 ip -4 addr add 10.0.0.3/24 brd 10.0.0.255 scope global dev tap01
+ip netns exec qdhcp01 ip route replace default via 10.0.0.1 dev tap01
+ip netns exec qdhcp01 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap01 --except-interface=lo --dhcp-range=set:tag0,10.0.0.6,10.0.0.90,86400s --dhcp-lease-max=256
+
+iptables -F
 
 
+--------------------------
+node1(compute node)
+--------------------------
+ovs-vsctl --timeout=10 -- --if-exists del-port br-int patch-tun
+ovs-vsctl --timeout=10 -- --may-exist add-br br-int
+ovs-vsctl --timeout=10 -- set-fail-mode br-int secure
 
-yum install gcc
-yum install zlib-devel
-yum install glib2-devel
-yum install pixman
-yum install pixman-devel
+ovs-ofctl add-flow br-int hard_timeout=0,idle_timeout=0,priority=1,actions=normal
+ovs-ofctl add-flow br-int hard_timeout=0,idle_timeout=0,priority=0,table=22,actions=drop
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-tun
+ovs-vsctl --timeout=10 -- --may-exist add-br br-tun
+ovs-vsctl --timeout=10 add-port br-int patch-tun -- set Interface patch-tun type=patch options:peer=patch-int
+ovs-vsctl --timeout=10 add-port br-tun patch-int -- set Interface patch-int type=patch options:peer=patch-tun
+
+ovs-ofctl del-flows br-tun
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=1,actions=resubmit(,1)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=1,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00,actions=resubmit(,20)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=1,dl_dst=01:00:00:00:00:00/01:00:00:00:00:00,actions=resubmit(,21)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=2,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=3,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=10,actions=learn(table=20,priority=1,hard_timeout=300,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0->NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]->NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=20,actions=resubmit(,21)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=21,actions=drop"
+
+ovs-vsctl --timeout=10 -- --may-exist add-port br-tun gre-0a060604 -- set Interface gre-0a060604 type=gre options:remote_ip=10.255.254.100 options:local_ip=10.255.254.101 options:in_key=flow options:out_key=flow
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,actions=resubmit(,2)"
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
+
+
+yum -y install bridge-utils
+yum -y install gcc
+yum -y install zlib-devel
+yum -y install glib2-devel
+yum -y install pixman
+yum -y install pixman-devel
+iptables -F
 
 git clone git://git.qemu-project.org/qemu.git
 cd qemu 
@@ -133,8 +126,82 @@ make -j8
 sudo make install
 wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img
 wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-kernel
-cp cirros-0.3.4-x86_64-disk.img cirros.img
-cp cirros-0.3.4-x86_64-kernel kernel
 
-qemu-system-x86_64 -nographic -kernel ./kernel -hda cirros.img -append "root=/dev/sda1 console=ttyS0" -net nic -net tap,ifname="tap01",script=no,downscript=no
+--------------
+#tenant 1
+--------------
+#start vm01
+brctl addbr qbr01
+ip link set qbr01 up
+ip link add qvo01 type veth peer name qvb01
+brctl addif qbr01 qvb01
+ovs-vsctl add-port br-int qvo01
+ip link set qvb01 up
+ip link set qvo01 up
+ovs-vsctl set port qvo01 tag=1
+ip tuntap add tap01 mode tap
+ip link set dev tap01 up
+brctl addif qbr01 tap01
+cp cirros-0.3.4-x86_64-disk.img cirros-vm1.img
+cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm1
+qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm1 -hda cirros-vm1.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:60 -net tap,ifname="tap01",script=no,downscript=no
+
+#start vm02
+brctl addbr qbr02
+ip link set qbr02 up
+ip link add qvo02 type veth peer name qvb02
+brctl addif qbr02 qvb02
+ovs-vsctl add-port br-int qvo02
+ip link set qvb02 up
+ip link set qvo02 up
+ovs-vsctl set port qvo02 tag=1
+ip tuntap add tap02 mode tap
+ip link set dev tap02 up
+brctl addif qbr02 tap02
+
+cp cirros-0.3.4-x86_64-disk.img cirros-vm2.img
+cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm2
+qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm2 -hda cirros-vm2.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:61 -net tap,ifname="tap02",script=no,downscript=no
+
+--------------
+#tenant 2
+--------------
+
+#add cmd and flows in network node
+
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=2,actions=strip_vlan,set_tunnel:2,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=2,actions=mod_vlan_vid:2,resubmit(,10)"
+
+ovs-vsctl -- --if-exists del-port tap02 -- add-port br-int tap02 -- set interface tap02 type=internal
+ovs-vsctl --timeout=10 set Port tap02 tag=2
+ip netns add qdhcp02
+ip netns exec qdhcp02 ip link set lo up
+ip link set tap02 netns qdhcp02
+ip netns exec qdhcp02 ip link set tap02 up
+ip netns exec qdhcp02 ip -4 addr add 10.0.1.3/24 brd 10.0.1.255 scope global dev tap02
+ip netns exec qdhcp02 ip route replace default via 10.0.1.1 dev tap02
+ip netns exec qdhcp02 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap02 --except-interface=lo --dhcp-range=set:tag0,10.0.1.6,10.0.1.90,86400s --dhcp-lease-max=256
+
+
+#add cmd and flows in compute node
+
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=2,actions=strip_vlan,set_tunnel:2,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=2,actions=mod_vlan_vid:2,resubmit(,10)"
+
+brctl addbr qbr03
+ip link set qbr03 up
+ip link add qvo03 type veth peer name qvb03
+brctl addif qbr03 qvb03
+ovs-vsctl add-port br-int qvo03
+ip link set qvb03 up
+ip link set qvo03 up
+ovs-vsctl set port qvo03 tag=2
+ip tuntap add tap03 mode tap
+ip link set dev tap03 up
+brctl addif qbr03 tap03
+
+cp cirros-0.3.4-x86_64-disk.img cirros-vm3.img
+cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm3
+qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm3 -hda cirros-vm3.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:62 -net tap,ifname="tap03",script=no,downscript=no
+
 
