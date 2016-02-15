@@ -1,11 +1,12 @@
 Build GRE tunnel network
 
-virtualbox vms:
-network node:	centos7		eth0:10.255.255.20(host-only)	eth1:10.255.254.100(host-only)
+virtualbox vms:				manager network						gre network						external network
+network node:	centos7		eth0:10.255.255.20(host-only)	eth1:10.255.254.100(host-only)		eth2:10.255.253.10(host-only)
 compute node:	centos7		eth0:10.255.255.21(host-only)	eth1:10.255.254.101(host-only)
 
-
+#on host server
 iptables -t nat -I POSTROUTING -s 10.255.255.0/24 -j MASQUERADE
+iptables -t nat -I POSTROUTING -s 10.255.253.0/24 -j MASQUERADE
 sysctl net.ipv4.ip_forward=1
 
 vi /etc/hostname
