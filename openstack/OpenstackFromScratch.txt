@@ -1,6 +1,6 @@
 Build GRE tunnel network
 
-virtualbox vms:				manager network						gre network						external network
+virtualbox vms:				manager network				gre network						external network
 network node:	centos7		eth0:10.255.255.20(host-only)	eth1:10.255.254.100(host-only)		eth2:10.255.253.10(host-only)
 compute node:	centos7		eth0:10.255.255.21(host-only)	eth1:10.255.254.101(host-only)
 
