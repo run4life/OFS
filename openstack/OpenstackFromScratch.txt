@@ -51,6 +51,21 @@ ovs-vsctl --timeout=10 -- --may-exist add-br br-tun
 ovs-vsctl --timeout=10 add-port br-int patch-tun -- set Interface patch-tun type=patch options:peer=patch-int 
 ovs-vsctl --timeout=10 add-port br-tun patch-int -- set Interface patch-int type=patch options:peer=patch-tun 
 
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-eth2
+ovs-vsctl --timeout=10 -- --may-exist add-br br-eth2
+ovs-vsctl add-port br-eth2 eth2
+ovs-vsctl --timeout=10 add-port br-int int-br-eth2 -- set Interface int-br-eth2 type=patch options:peer=phy-br-eth2 
+ovs-vsctl --timeout=10 add-port br-eth2 phy-br-eth2 -- set Interface phy-br-eth2 type=patch options:peer=int-br-eth2 
+
+
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,actions=drop"
+
+ovs-ofctl del-flows br-eth2
+
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=1,actions=normal"
+
 ovs-ofctl del-flows br-tun
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=1,actions=resubmit(,1)"
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,actions=drop"
@@ -94,6 +109,18 @@ ovs-vsctl --timeout=10 -- --if-exists del-br br-tun
 ovs-vsctl --timeout=10 -- --may-exist add-br br-tun
 ovs-vsctl --timeout=10 add-port br-int patch-tun -- set Interface patch-tun type=patch options:peer=patch-int
 ovs-vsctl --timeout=10 add-port br-tun patch-int -- set Interface patch-int type=patch options:peer=patch-tun
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-eth2
+ovs-vsctl --timeout=10 -- --may-exist add-br br-eth2
+ovs-vsctl add-port br-eth2 eth2
+ovs-vsctl --timeout=10 add-port br-int int-br-eth2 -- set Interface int-br-eth2 type=patch options:peer=phy-br-eth2 
+ovs-vsctl --timeout=10 add-port br-eth2 phy-br-eth2 -- set Interface phy-br-eth2 type=patch options:peer=int-br-eth2 
+
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,actions=drop"
+
+ovs-ofctl del-flows br-eth2
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=1,actions=normal"
 
 ovs-ofctl del-flows br-tun
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=1,actions=resubmit(,1)"
@@ -204,5 +231,45 @@ brctl addif qbr03 tap03
 cp cirros-0.3.4-x86_64-disk.img cirros-vm3.img
 cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm3
 qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm3 -hda cirros-vm3.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:62 -net tap,ifname="tap03",script=no,downscript=no
+
+--------------
+#tenant 3
+--------------
+
+#add cmd and flows in network node
+
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,dl_vlan=103,actions=mod_vlan_vid:3"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=4,in_port=2,dl_vlan=3,actions=mod_vlan_vid:103"
+
+ovs-vsctl -- --if-exists del-port tap03 -- add-port br-int tap03 -- set interface tap03 type=internal
+ovs-vsctl --timeout=10 set Port tap03 tag=3
+ip netns add qdhcp03
+ip netns exec qdhcp03 ip link set lo up
+ip link set tap03 netns qdhcp03
+ip netns exec qdhcp03 ip link set tap03 up
+ip netns exec qdhcp03 ip -4 addr add 10.0.2.3/24 brd 10.0.2.255 scope global dev tap03
+ip netns exec qdhcp03 ip route replace default via 10.0.2.1 dev tap03
+ip netns exec qdhcp03 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap03 --except-interface=lo --dhcp-range=set:tag0,10.0.2.6,10.0.2.90,86400s --dhcp-lease-max=256
+
+#add cmd and flows in compute node
+
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,dl_vlan=103,actions=mod_vlan_vid:3"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=4,in_port=2,dl_vlan=3,actions=mod_vlan_vid:103"
+
+brctl addbr qbr04
+ip link set qbr04 up
+ip link add qvo04 type veth peer name qvb04
+brctl addif qbr04 qvb04
+ovs-vsctl add-port br-int qvo04
+ip link set qvb04 up
+ip link set qvo04 up
+ovs-vsctl set port qvo04 tag=3
+ip tuntap add tap04 mode tap
+ip link set dev tap04 up
+brctl addif qbr04 tap04
+
+cp cirros-0.3.4-x86_64-disk.img cirros-vm4.img
+cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm4
+qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm4 -hda cirros-vm4.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:63 -net tap,ifname="tap04",script=no,downscript=no
 
 
