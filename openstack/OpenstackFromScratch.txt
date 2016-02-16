@@ -1,6 +1,12 @@
 Build tunnel and vlan networks env
 
-virtualbox vms:													
+virtualbox vms infomations:													
+
+mgmt-net:Manager network
+tunnel-net:Tunnel Network
+vlan-net:Vlan network
+ext-net:External network
+
 network node: centos7
 	mgmt-net:eth0(10.255.255.20) host-only
 	tunnel-net:eth1(10.255.254.100) host-only	
@@ -11,6 +17,7 @@ compute node: centos7
 	mgmt-net:eth0(10.255.255.21) host-only
 	tunnel-net:eth1(10.255.254.101) host-only
 	vlan-net:eth2 internel
+
 
 tenant1: GRE tunnel, gateway:10.0.0.1, dhcp:10.0.0.3
 		vm1:52:54:00:12:34:60
