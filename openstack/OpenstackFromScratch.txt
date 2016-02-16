@@ -47,6 +47,7 @@ ssh-keygen -t rsa -P '' -f /etc/ssh/ssh_host_rsa_key
 vi /etc/selinux/config
 reboot
 
+#install openvswitch
 yum -y install wget openssl-devel kernel-devel
 yum -y groupinstall "Development Tools"
 adduser ovswitch
@@ -58,6 +59,22 @@ cp openvswitch-2.4.0.tar.gz /home/ovswitch/rpmbuild/SOURCES/
 rpmbuild -bb --without check ~/openvswitch-2.4.0/rhel/openvswitch.spec
 exit
 yum -y localinstall /home/ovswitch/rpmbuild/RPMS/x86_64/openvswitch-2.4.0-1.x86_64.rpm
+
+#install qemu
+yum -y install bridge-utils
+yum -y install gcc
+yum -y install zlib-devel
+yum -y install glib2-devel
+yum -y install pixman
+yum -y install pixman-devel
+
+git clone git://git.qemu-project.org/qemu.git
+cd qemu 
+./configure --enable-debug --enable-vnc --enable-werror --target-list="x86_64-softmmu" 
+make -j8 
+sudo make install
+wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img
+wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-kernel
 
 
 -------------------------
@@ -165,21 +182,6 @@ ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,o
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
 iptables -F
-
-yum -y install bridge-utils
-yum -y install gcc
-yum -y install zlib-devel
-yum -y install glib2-devel
-yum -y install pixman
-yum -y install pixman-devel
-
-git clone git://git.qemu-project.org/qemu.git
-cd qemu 
-./configure --enable-debug --enable-vnc --enable-werror --target-list="x86_64-softmmu" 
-make -j8 
-sudo make install
-wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img
-wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-kernel
 
 --------------
 #tenant 1
