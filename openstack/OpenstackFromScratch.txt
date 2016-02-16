@@ -59,10 +59,9 @@ ovs-vsctl --timeout=10 add-port br-int int-br-eth2 -- set Interface int-br-eth2 
 ovs-vsctl --timeout=10 add-port br-eth2 phy-br-eth2 -- set Interface phy-br-eth2 type=patch options:peer=int-br-eth2 
 
 
-ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,actions=drop"
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
 
 ovs-ofctl del-flows br-eth2
-
 ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
 ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=1,actions=normal"
 
@@ -102,6 +101,7 @@ ovs-vsctl --timeout=10 -- --if-exists del-port br-int patch-tun
 ovs-vsctl --timeout=10 -- --may-exist add-br br-int
 ovs-vsctl --timeout=10 -- set-fail-mode br-int secure
 
+ovs-ofctl del-flows br-int
 ovs-ofctl add-flow br-int hard_timeout=0,idle_timeout=0,priority=1,actions=normal
 ovs-ofctl add-flow br-int hard_timeout=0,idle_timeout=0,priority=0,table=22,actions=drop
 
@@ -116,7 +116,7 @@ ovs-vsctl add-port br-eth2 eth2
 ovs-vsctl --timeout=10 add-port br-int int-br-eth2 -- set Interface int-br-eth2 type=patch options:peer=phy-br-eth2 
 ovs-vsctl --timeout=10 add-port br-eth2 phy-br-eth2 -- set Interface phy-br-eth2 type=patch options:peer=int-br-eth2 
 
-ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,actions=drop"
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
 
 ovs-ofctl del-flows br-eth2
 ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
@@ -138,6 +138,7 @@ ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,ac
 ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
+iptables -F
 
 yum -y install bridge-utils
 yum -y install gcc
@@ -145,7 +146,6 @@ yum -y install zlib-devel
 yum -y install glib2-devel
 yum -y install pixman
 yum -y install pixman-devel
-iptables -F
 
 git clone git://git.qemu-project.org/qemu.git
 cd qemu 
@@ -238,8 +238,8 @@ qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm3 -hda cirros-vm3.img -a
 
 #add cmd and flows in network node
 
-ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,dl_vlan=103,actions=mod_vlan_vid:3"
-ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=4,in_port=2,dl_vlan=3,actions=mod_vlan_vid:103"
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,dl_vlan=103,actions=mod_vlan_vid:3,NORMAL"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=4,in_port=2,dl_vlan=3,actions=mod_vlan_vid:103,NORMAL"
 
 ovs-vsctl -- --if-exists del-port tap03 -- add-port br-int tap03 -- set interface tap03 type=internal
 ovs-vsctl --timeout=10 set Port tap03 tag=3
@@ -253,8 +253,8 @@ ip netns exec qdhcp03 dnsmasq --no-hosts --no-resolv --strict-order --bind-inter
 
 #add cmd and flows in compute node
 
-ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,dl_vlan=103,actions=mod_vlan_vid:3"
-ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=4,in_port=2,dl_vlan=3,actions=mod_vlan_vid:103"
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,dl_vlan=103,actions=mod_vlan_vid:3,NORMAL"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=4,in_port=2,dl_vlan=3,actions=mod_vlan_vid:103,NORMAL"
 
 brctl addbr qbr04
 ip link set qbr04 up
