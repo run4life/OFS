@@ -132,7 +132,7 @@ ip link set tap01 netns qdhcp01
 ip netns exec qdhcp01 ip link set tap01 up
 ip netns exec qdhcp01 ip -4 addr add 10.0.0.3/24 brd 10.0.0.255 scope global dev tap01
 ip netns exec qdhcp01 ip route replace default via 10.0.0.1 dev tap01
-ip netns exec qdhcp01 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap01 --except-interface=lo --dhcp-range=set:tag0,10.0.0.6,10.0.0.90,86400s --dhcp-lease-max=256
+ip netns exec qdhcp01 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap01 --except-interface=lo --dhcp-range=set:tag0,10.0.0.6,10.0.0.90,86400s --dhcp-lease-max=256 --dhcp-option=3,10.0.0.1
 
 iptables -F
 
@@ -241,7 +241,7 @@ ip link set tap02 netns qdhcp02
 ip netns exec qdhcp02 ip link set tap02 up
 ip netns exec qdhcp02 ip -4 addr add 10.0.1.3/24 brd 10.0.1.255 scope global dev tap02
 ip netns exec qdhcp02 ip route replace default via 10.0.1.1 dev tap02
-ip netns exec qdhcp02 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap02 --except-interface=lo --dhcp-range=set:tag0,10.0.1.6,10.0.1.90,86400s --dhcp-lease-max=256
+ip netns exec qdhcp02 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap02 --except-interface=lo --dhcp-range=set:tag0,10.0.1.6,10.0.1.90,86400s --dhcp-lease-max=256 --dhcp-option=3,10.0.1.1
 
 
 #add cmd and flows in compute node
@@ -282,7 +282,7 @@ ip link set tap03 netns qdhcp03
 ip netns exec qdhcp03 ip link set tap03 up
 ip netns exec qdhcp03 ip -4 addr add 10.0.2.3/24 brd 10.0.2.255 scope global dev tap03
 ip netns exec qdhcp03 ip route replace default via 10.0.2.1 dev tap03
-ip netns exec qdhcp03 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap03 --except-interface=lo --dhcp-range=set:tag0,10.0.2.6,10.0.2.90,86400s --dhcp-lease-max=256
+ip netns exec qdhcp03 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap03 --except-interface=lo --dhcp-range=set:tag0,10.0.2.6,10.0.2.90,86400s --dhcp-lease-max=256 --dhcp-option=3,10.0.2.1
 
 #add cmd and flows in compute node
 
