@@ -184,6 +184,11 @@ wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-kernel
 --------------
 #tenant 1
 --------------
+
+#add cmd and flows in network node
+
+#add cmd and flows in compute node
+
 #start vm01
 brctl addbr qbr01
 ip link set qbr01 up
