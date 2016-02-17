@@ -381,7 +381,56 @@ ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-float-snat -s 10.0.2
 add security group for vm4
 ----------------------------
 
+iptables -F
+iptables -X
+iptables -Z
 
+iptables -t filter -N neutron-filter-top
+
+iptables -t filter -N neutron-openvswi-FORWARD
+iptables -t filter -N neutron-openvswi-INPUT
+iptables -t filter -N neutron-openvswi-OUTPUT
+
+iptables -t filter -N neutron-openvswi-i04
+iptables -t filter -N neutron-openvswi-local
+
+iptables -t filter -N neutron-openvswi-o04
+iptables -t filter -N neutron-openvswi-s04
+iptables -t filter -N neutron-openvswi-sg-chain
+iptables -t filter -N neutron-openvswi-sg-fallback
+
+iptables -t filter -A INPUT -j neutron-openvswi-INPUT
+iptables -t filter -A FORWARD -j neutron-filter-top
+
+iptables -t filter -A FORWARD -j neutron-openvswi-FORWARD
+iptables -t filter -A OUTPUT -j neutron-filter-top
+
+iptables -t filter -A OUTPUT -j neutron-openvswi-OUTPUT
+iptables -t filter -A neutron-filter-top -j neutron-openvswi-local
+
+iptables -t filter -A neutron-openvswi-FORWARD -m physdev --physdev-out tap04 --physdev-is-bridged -j neutron-openvswi-sg-chain
+iptables -t filter -A neutron-openvswi-FORWARD -m physdev --physdev-in tap04 --physdev-is-bridged -j neutron-openvswi-sg-chain
+iptables -t filter -A neutron-openvswi-INPUT -m physdev --physdev-in tap04 --physdev-is-bridged -j neutron-openvswi-o04
+
+iptables -t filter -A neutron-openvswi-i04 -m state --state INVALID -j DROP
+iptables -t filter -A neutron-openvswi-i04 -m state --state RELATED,ESTABLISHED -j RETURN
+iptables -t filter -A neutron-openvswi-i04 -s 10.0.2.84/32 -p udp -m udp --sport 67 --dport 68 -j RETURN
+iptables -t filter -A neutron-openvswi-i04 -j neutron-openvswi-sg-fallback
+
+iptables -t filter -A neutron-openvswi-o04 -p udp -m udp --sport 68 --dport 67 -j RETURN
+iptables -t filter -A neutron-openvswi-o04 -j neutron-openvswi-s04
+iptables -t filter -A neutron-openvswi-o04 -p udp -m udp --sport 67 --dport 68 -j DROP
+iptables -t filter -A neutron-openvswi-o04 -m state --state INVALID -j DROP
+iptables -t filter -A neutron-openvswi-o04 -m state --state RELATED,ESTABLISHED -j RETURN
+iptables -t filter -A neutron-openvswi-o04 -j neutron-openvswi-sg-fallback
+
+iptables -t filter -A neutron-openvswi-s04 -s 10.0.2.84/32 -m mac --mac-source 52:54:00:12:34:63 -j RETURN
+iptables -t filter -A neutron-openvswi-s04 -j DROP
+iptables -t filter -A neutron-openvswi-sg-chain -m physdev --physdev-out tap04 --physdev-is-bridged -j neutron-openvswi-i04
+iptables -t filter -A neutron-openvswi-sg-chain -m physdev --physdev-in tap04 --physdev-is-bridged -j neutron-openvswi-o04
+iptables -t filter -A neutron-openvswi-sg-chain -j ACCEPT
+
+iptables -t filter -A neutron-openvswi-sg-fallback -j DROP
 
 
 
