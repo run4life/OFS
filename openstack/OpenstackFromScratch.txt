@@ -377,7 +377,9 @@ ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-OUTPUT -d 10.255.253
 ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-float-snat -s 10.0.2.84 -j SNAT --to 10.255.253.84
 
 
-
+----------------------------
+add security group for vm4
+----------------------------
 
 
 
