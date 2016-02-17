@@ -29,6 +29,7 @@ tenant2: GRE tunnel, gateway:10.0.1.1 dhcp:10.0.1.3
 tenant3: vlan 103, gateway:10.0.2.1 dhcp:10.0.2.3
 		vm4:52:54:00:12:34:63
 
+cirros-0.3.4-x86_64		cirros/cubswin:)
 
 #on host server
 iptables -t nat -I POSTROUTING -s 10.255.255.0/24 -j MASQUERADE
@@ -310,12 +311,13 @@ qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm4 -hda cirros-vm4.img -a
 ----------------------
 add L3 router for vm4
 ----------------------
-
+vm4	fixip:10.0.2.84		floating ip:10.255.253.84
 
 ovs-vsctl --timeout=10 -- --if-exists del-br br-ex
 ovs-vsctl --timeout=10 -- --may-exist add-br br-ex
 ovs-vsctl add-port br-ex eth3
 ip link set dev eth3 up
+ip link set dev br-ex up
 
 ovs-vsctl -- --if-exists del-port qr03 -- add-port br-int qr03 -- set interface qr03 type=internal
 ovs-vsctl --timeout=10 set Port qr03 tag=3
@@ -330,35 +332,50 @@ ip link set qg02 netns qrouter02
 ip netns exec qrouter02 ip link set qg02 up
 ip netns exec qrouter02 ip -4 addr add 10.255.253.11/24 brd 10.255.253.255 scope global dev qg02
 ip netns exec qrouter02 ip route replace default via 10.255.253.1 dev qg02
+ip netns exec qrouter02 sysctl -w net.ipv4.ip_forward=1
+
+ip netns exec qrouter02 iptables -N neutron-filter-top
+ip netns exec qrouter02 iptables -A FORWARD -j neutron-filter-top
+ip netns exec qrouter02 iptables -A OUTPUT -j neutron-filter-top
+ip netns exec qrouter02 iptables -N neutron-l3-agent-local
+ip netns exec qrouter02 iptables -A neutron-filter-top -j neutron-l3-agent-local
+
+ip netns exec qrouter02 iptables -N neutron-l3-agent-INPUT
+ip netns exec qrouter02 iptables -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter02 iptables -N neutron-l3-agent-FORWARD
+ip netns exec qrouter02 iptables -A INPUT -j neutron-l3-agent-INPUT
+ip netns exec qrouter02 iptables -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter02 iptables -A FORWARD -j neutron-l3-agent-FORWARD
+
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-PREROUTING
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-POSTROUTING
+ip netns exec qrouter02 iptables -t nat -A PREROUTING -j neutron-l3-agent-PREROUTING
+ip netns exec qrouter02 iptables -t nat -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter02 iptables -t nat -A POSTROUTING -j neutron-l3-agent-POSTROUTING
+
+ip netns exec qrouter02 iptables -t nat -N neutron-postrouting-bottom
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-snat
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-float-snat
+ip netns exec qrouter02 iptables -t nat -A POSTROUTING -j neutron-postrouting-bottom
+ip netns exec qrouter02 iptables -t nat -A neutron-postrouting-bottom -j neutron-l3-agent-snat
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-snat -j neutron-l3-agent-float-snat
+
+ip netns exec qrouter02 iptables -A neutron-l3-agent-INPUT -s 0.0.0.0/0 -d 127.0.0.1 -p tcp -m tcp --dport 9697 -j ACCEPT
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-PREROUTING -s 0.0.0.0/0 -d 169.254.169.254/32 -p tcp -m tcp --dport 80 -j REDIRECT --to-port 9697
+
+#ip netns exec qrouter02 iptables-save -c
+#ip netns exec qrouter02 iptables-restore -c
+
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-snat -j neutron-l3-agent-float-snat
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-POSTROUTING ! -i qg02 ! -o qg02 -m conntrack ! --ctstate DNAT -j ACCEPT
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-snat -s 10.0.2.0/24 -j SNAT --to-source 10.255.253.11
 
 ip netns exec qrouter02 ip -4 addr add 10.255.253.84/24 brd 10.255.253.255 scope global dev qg02
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-PREROUTING -d 10.255.253.84/32 -j DNAT --to 10.0.2.84
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-OUTPUT -d 10.255.253.84/32 -j DNAT --to 10.0.2.84
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-float-snat -s 10.0.2.84 -j SNAT --to 10.255.253.84
 
-ip netns exec qrouter02 ping 8.8.8.8
-
-
-ip netns exec qrouter02 iptables -t nat -F
-ip netns exec qrouter02 iptables -t nat -X
-ip netns exec qrouter02 iptables -t nat -Z
-ip netns exec qrouter02 iptables -t nat -N neutron-postrouting-bottom
-ip netns exec qrouter02 iptables -t nat -N neutron-vpn-agen-OUTPUT
-ip netns exec qrouter02 iptables -t nat -N neutron-vpn-agen-POSTROUTING
-ip netns exec qrouter02 iptables -t nat -N neutron-vpn-agen-PREROUTING
-ip netns exec qrouter02 iptables -t nat -N neutron-vpn-agen-float-snat
-ip netns exec qrouter02 iptables -t nat -N neutron-vpn-agen-snat
-ip netns exec qrouter02 iptables -t nat -A PREROUTING -j neutron-vpn-agen-PREROUTING
-ip netns exec qrouter02 iptables -t nat -A OUTPUT -j neutron-vpn-agen-OUTPUT
-ip netns exec qrouter02 iptables -t nat -A POSTROUTING -j neutron-vpn-agen-POSTROUTING
-ip netns exec qrouter02 iptables -t nat -A POSTROUTING -j neutron-postrouting-bottom
-ip netns exec qrouter02 iptables -t nat -A neutron-postrouting-bottom -j neutron-vpn-agen-snat
-ip netns exec qrouter02 iptables -t nat -A neutron-vpn-agen-OUTPUT -d 10.255.253.84/32 -j DNAT --to-destination 10.0.2.84
-ip netns exec qrouter02 iptables -t nat -A neutron-vpn-agen-POSTROUTING ! -i qg02 ! -o qg02 -m conntrack ! --ctstate DNAT -j ACCEPT
-ip netns exec qrouter02 iptables -t nat -A neutron-vpn-agen-PREROUTING -d 169.254.169.254/32 -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 9697
-ip netns exec qrouter02 iptables -t nat -A neutron-vpn-agen-PREROUTING -d 10.255.253.84/32 -j DNAT --to-destination 10.0.2.84
-ip netns exec qrouter02 iptables -t nat -A neutron-vpn-agen-float-snat -s 10.0.2.84/32 -j SNAT --to-source 10.255.253.84
-ip netns exec qrouter02 iptables -t nat -A neutron-vpn-agen-snat -j neutron-vpn-agen-float-snat
-ip netns exec qrouter02 iptables -t nat -A neutron-vpn-agen-snat -s 10.0.2.0/24 -j SNAT --to-source 10.255.253.11
-
-ip netns exec qrouter02 iptables -t nat -nvL
 
 
 
