@@ -135,6 +135,10 @@ ip netns exec qdhcp01 ip -4 addr add 10.0.0.3/24 brd 10.0.0.255 scope global dev
 ip netns exec qdhcp01 ip route replace default via 10.0.0.1 dev tap01
 ip netns exec qdhcp01 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap01 --except-interface=lo --dhcp-range=set:tag0,10.0.0.6,10.0.0.90,86400s --dhcp-lease-max=256 --dhcp-option=3,10.0.0.1
 
+ip link set dev br-int up
+ip link set dev br-tun up
+ip link set dev br-eth2 up
+ip link set dev eth2 up
 iptables -F
 
 
@@ -182,6 +186,10 @@ ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,ac
 ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
+ip link set dev br-int up
+ip link set dev br-tun up
+ip link set dev br-eth2 up
+ip link set dev eth2 up
 iptables -F
 
 --------------
@@ -380,6 +388,10 @@ ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-float-snat -s 10.0.2
 ----------------------------
 add security group for vm4
 ----------------------------
+#open bridge iptables function
+sysctl -w net.bridge.bridge-nf-call-arptables = 1
+sysctl -w net.bridge.bridge-nf-call-ip6tables = 1
+sysctl -w net.bridge.bridge-nf-call-iptables = 1
 
 iptables -F
 iptables -X
@@ -414,7 +426,7 @@ iptables -t filter -A neutron-openvswi-INPUT -m physdev --physdev-in tap04 --phy
 
 iptables -t filter -A neutron-openvswi-i04 -m state --state INVALID -j DROP
 iptables -t filter -A neutron-openvswi-i04 -m state --state RELATED,ESTABLISHED -j RETURN
-iptables -t filter -A neutron-openvswi-i04 -s 10.0.2.84/32 -p udp -m udp --sport 67 --dport 68 -j RETURN
+iptables -t filter -A neutron-openvswi-i04 -s 10.0.2.3/32 -p udp -m udp --sport 67 --dport 68 -j RETURN
 iptables -t filter -A neutron-openvswi-i04 -j neutron-openvswi-sg-fallback
 
 iptables -t filter -A neutron-openvswi-o04 -p udp -m udp --sport 68 --dport 67 -j RETURN
@@ -431,6 +443,38 @@ iptables -t filter -A neutron-openvswi-sg-chain -m physdev --physdev-in tap04 --
 iptables -t filter -A neutron-openvswi-sg-chain -j ACCEPT
 
 iptables -t filter -A neutron-openvswi-sg-fallback -j DROP
+
+
+#add security group rules
+#open ping,ssh,http port
+iptables -t filter -I neutron-openvswi-o04 6 -p icmp -j RETURN
+iptables -t filter -I neutron-openvswi-i04 4 -p icmp -j RETURN
+iptables -t filter -I neutron-openvswi-o04 6 -p tcp -m tcp --dport 22 -j RETURN
+iptables -t filter -I neutron-openvswi-i04 4 -p tcp -m tcp --dport 22 -j RETURN
+iptables -t filter -I neutron-openvswi-i04 4 -p tcp -m tcp --dport 80 -j RETURN
+iptables -t filter -I neutron-openvswi-o04 6 -p tcp -m tcp --dport 80 -j RETURN
+
+-----------------------------------
+add tenant1 and tenant2 router
+-----------------------------------
+#tenant1 add to qrouter01,gateway:10.0.0.1 
+#add cmd and flows in network node
+ovs-vsctl -- --if-exists del-port qr01 -- add-port br-int qr01 -- set interface qr01 type=internal
+ovs-vsctl --timeout=10 set Port qr01 tag=1
+ip netns add qrouter01
+ip netns exec qrouter01 ip link set lo up
+ip link set qr01 netns qrouter01
+ip netns exec qrouter01 ip link set qr01 up
+ip netns exec qrouter01 ip -4 addr add 10.0.0.1/24 brd 10.0.0.255 scope global dev qr01
+ip netns exec qrouter01 sysctl -w net.ipv4.ip_forward=1
+
+#tenant2 add to qrouter01,gateway:10.0.1.1
+ovs-vsctl -- --if-exists del-port qr02 -- add-port br-int qr02 -- set interface qr02 type=internal
+ovs-vsctl --timeout=10 set Port qr02 tag=2
+ip link set qr02 netns qrouter01
+ip netns exec qrouter01 ip link set qr02 up
+ip netns exec qrouter01 ip -4 addr add 10.0.1.1/24 brd 10.0.1.255 scope global dev qr02
+
 
 
 
