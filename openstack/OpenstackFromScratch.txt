@@ -454,9 +454,9 @@ iptables -t filter -I neutron-openvswi-i04 4 -p tcp -m tcp --dport 22 -j RETURN
 iptables -t filter -I neutron-openvswi-i04 4 -p tcp -m tcp --dport 80 -j RETURN
 iptables -t filter -I neutron-openvswi-o04 6 -p tcp -m tcp --dport 80 -j RETURN
 
------------------------------------
-add tenant1 and tenant2 router
------------------------------------
+-----------------------------------------
+add a router between tenant1 and tenant2
+-----------------------------------------
 #tenant1 add to qrouter01,gateway:10.0.0.1 
 #add cmd and flows in network node
 ovs-vsctl -- --if-exists del-port qr01 -- add-port br-int qr01 -- set interface qr01 type=internal
