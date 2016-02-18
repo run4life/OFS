@@ -549,11 +549,152 @@ ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -m state --s
 ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -m state --state INVALID -j DROP
 ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-
 ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -p icmp -j ACCEPT
 ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -p icmp -j ACCEPT
 ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -p tcp -m tcp --dport ssh -j ACCEPT
 ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -p tcp -m tcp --dport ssh -j ACCEPT
+
+
+--------------------------------------------
+add a load balance for tenant1 vm1 and vm2
+--------------------------------------------
+
+yum install -y haproxy
+
+ovs-vsctl -- --if-exists del-port tap04 -- add-port br-int tap04 -- set interface tap04 type=internal
+ovs-vsctl set Port tap04 tag=1
+ip link set tap04 address fa:16:3e:f4:8f:ae
+
+ip netns add qlbaas-01
+ip netns exec qlbaas-01 sysctl -w net.ipv4.conf.all.promote_secondaries=1
+ip link set tap04 netns qlbaas-01
+ip netns exec qlbaas-01 ip link set lo up
+ip netns exec qlbaas-01 ip link set tap04 up
+ip netns exec qlbaas-01 ip addr show tap04 permanent scope global
+ip netns exec qlbaas-01 ip -4 addr add 10.0.0.100/24 brd 10.0.0.255 scope global dev tap04
+ip netns exec qlbaas-01 ip route list dev tap04 scope link
+ip netns exec qlbaas-01 route add default gw 10.0.0.1
+ip netns exec qlbaas-01 arping -U -I tap04 -c 3 10.0.0.100
+
+mkdir -p /var/lib/neutron/lbaas/
+
+vi haproxy.cfg
+
+global
+        daemon
+        user haproxy
+        group haproxy
+        log /dev/log local0
+        log /dev/log local1 notice
+        stats socket /root/sock mode 0666 level user
+
+defaults
+        log global
+        retries 3
+        option redispatch
+        timeout connect 5000
+        timeout client 50000
+        timeout server 50000
+
+frontend 0c32d37d-f84a-4309-9e01-72d9f0bac69e
+        option tcplog
+        bind 10.0.0.100:80
+        mode http
+        default_backend 3b9d8ebd-9eea-4925-b14e-593a6111ff33
+        maxconn 100
+        option forwardfor
+
+backend 3b9d8ebd-9eea-4925-b14e-593a6111ff33
+        mode http
+        balance roundrobin
+        option forwardfor
+        timeout check 5s
+        server 1f74a288-937d-4804-9ded-472a5d1110dc 10.0.0.81:80 weight 1 check inter 5s fall 3
+        server 944ff4a0-4070-40e4-8189-20f385755113 10.0.0.82:80 weight 1 check inter 5s fall 3
+
+
+ip netns exec qlbaas-01 haproxy -f /root/haproxy.cfg -p /root/pid
+
+#while true; do echo -e 'HTTP/1.0 200 OK\r\n\r\nserver_81' | sudo nc -l -p 80; done
+#while true; do echo -e 'HTTP/1.0 200 OK\r\n\r\nserver_82' | sudo nc -l -p 80; done
+#ip netns exec qlbaas-01 wget http://10.0.0.100
+
+---------------------------------------
+add a floating ip for load balance VIP
+---------------------------------------
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-ex
+ovs-vsctl --timeout=10 -- --may-exist add-br br-ex
+ovs-vsctl add-port br-ex eth3
+ip link set dev eth3 up
+ip link set dev br-ex up
+
+ovs-vsctl -- --if-exists del-port qr01 -- add-port br-int qr01 -- set interface qr01 type=internal
+ovs-vsctl --timeout=10 set Port qr01 tag=1
+ip netns add qrouter01
+ip netns exec qrouter01 ip link set lo up
+ip link set qr01 netns qrouter01
+ip netns exec qrouter01 ip link set qr01 up
+ip netns exec qrouter01 ip -4 addr add 10.0.0.1/24 brd 10.0.0.255 scope global dev qr01
+
+ovs-vsctl -- --if-exists del-port qg01 -- add-port br-ex qg01 -- set interface qg01 type=internal
+ip link set qg01 netns qrouter01
+ip netns exec qrouter01 ip link set qg01 up
+ip netns exec qrouter01 ip -4 addr add 10.255.253.10/24 brd 10.255.253.255 scope global dev qg01
+ip netns exec qrouter01 ip route replace default via 10.255.253.1 dev qg01
+ip netns exec qrouter01 sysctl -w net.ipv4.ip_forward=1
+
+ip netns exec qrouter01 iptables -N neutron-filter-top
+ip netns exec qrouter01 iptables -A FORWARD -j neutron-filter-top
+ip netns exec qrouter01 iptables -A OUTPUT -j neutron-filter-top
+ip netns exec qrouter01 iptables -N neutron-l3-agent-local
+ip netns exec qrouter01 iptables -A neutron-filter-top -j neutron-l3-agent-local
+
+ip netns exec qrouter01 iptables -N neutron-l3-agent-INPUT
+ip netns exec qrouter01 iptables -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -N neutron-l3-agent-FORWARD
+ip netns exec qrouter01 iptables -A INPUT -j neutron-l3-agent-INPUT
+ip netns exec qrouter01 iptables -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -A FORWARD -j neutron-l3-agent-FORWARD
+
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-PREROUTING
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-POSTROUTING
+ip netns exec qrouter01 iptables -t nat -A PREROUTING -j neutron-l3-agent-PREROUTING
+ip netns exec qrouter01 iptables -t nat -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -t nat -A POSTROUTING -j neutron-l3-agent-POSTROUTING
+
+ip netns exec qrouter01 iptables -t nat -N neutron-postrouting-bottom
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-snat
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-float-snat
+ip netns exec qrouter01 iptables -t nat -A POSTROUTING -j neutron-postrouting-bottom
+ip netns exec qrouter01 iptables -t nat -A neutron-postrouting-bottom -j neutron-l3-agent-snat
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-snat -j neutron-l3-agent-float-snat
+
+ip netns exec qrouter01 iptables -A neutron-l3-agent-INPUT -s 0.0.0.0/0 -d 127.0.0.1 -p tcp -m tcp --dport 9697 -j ACCEPT
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-PREROUTING -s 0.0.0.0/0 -d 169.254.169.254/32 -p tcp -m tcp --dport 80 -j REDIRECT --to-port 9697
+
+#ip netns exec qrouter01 iptables-save -c
+#ip netns exec qrouter01 iptables-restore -c
+
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-snat -j neutron-l3-agent-float-snat
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-POSTROUTING ! -i qg01 ! -o qg01 -m conntrack ! --ctstate DNAT -j ACCEPT
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-snat -s 10.0.0.0/24 -j SNAT --to-source 10.255.253.100
+
+ip netns exec qrouter01 ip -4 addr add 10.255.253.100/24 brd 10.255.253.255 scope global dev qg01
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-PREROUTING -d 10.255.253.100/32 -j DNAT --to 10.0.0.100
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-OUTPUT -d 10.255.253.100/32 -j DNAT --to 10.0.0.100
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-float-snat -s 10.0.0.100 -j SNAT --to 10.255.253.100
+
+
+
+
+
+
+
+
+
+
 
 
 
