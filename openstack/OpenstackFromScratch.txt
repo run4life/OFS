@@ -139,6 +139,7 @@ ip link set dev br-int up
 ip link set dev br-tun up
 ip link set dev br-eth2 up
 ip link set dev eth2 up
+ip link set dev eth3 up
 iptables -F
 
 
@@ -385,13 +386,13 @@ ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-OUTPUT -d 10.255.253
 ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-float-snat -s 10.0.2.84 -j SNAT --to 10.255.253.84
 
 
-----------------------------
-add security group for vm4
-----------------------------
+------------------------------------
+add security group(neutron) for vm4
+------------------------------------
 #open bridge iptables function
-sysctl -w net.bridge.bridge-nf-call-arptables = 1
-sysctl -w net.bridge.bridge-nf-call-ip6tables = 1
-sysctl -w net.bridge.bridge-nf-call-iptables = 1
+sysctl -w net.bridge.bridge-nf-call-arptables=1
+sysctl -w net.bridge.bridge-nf-call-ip6tables=1
+sysctl -w net.bridge.bridge-nf-call-iptables=1
 
 iptables -F
 iptables -X
@@ -454,6 +455,43 @@ iptables -t filter -I neutron-openvswi-i04 4 -p tcp -m tcp --dport 22 -j RETURN
 iptables -t filter -I neutron-openvswi-i04 4 -p tcp -m tcp --dport 80 -j RETURN
 iptables -t filter -I neutron-openvswi-o04 6 -p tcp -m tcp --dport 80 -j RETURN
 
+
+------------------------------------
+add security group(nova) for vm4
+------------------------------------
+
+iptables -F
+iptables -X
+iptables -Z
+
+iptables -t filter -N nova-compute-FORWARD
+iptables -t filter -N nova-compute-INPUT
+iptables -t filter -N nova-compute-OUTPUT
+iptables -t filter -N nova-compute-inst-04
+iptables -t filter -N nova-compute-local
+iptables -t filter -N nova-compute-provider
+iptables -t filter -N nova-compute-sg-fallback
+iptables -t filter -N nova-filter-top
+iptables -t filter -A INPUT -j nova-compute-INPUT
+iptables -t filter -A FORWARD -j nova-filter-top
+iptables -t filter -A FORWARD -j nova-compute-FORWARD
+iptables -t filter -A OUTPUT -j nova-filter-top
+iptables -t filter -A OUTPUT -j nova-compute-OUTPUT
+iptables -t filter -A nova-compute-FORWARD -s 0.0.0.0/32 -d 255.255.255.255/32 -p udp -m udp --sport 68 --dport 67 -j ACCEPT
+iptables -t filter -A nova-compute-INPUT -s 0.0.0.0/32 -d 255.255.255.255/32 -p udp -m udp --sport 68 --dport 67 -j ACCEPT
+iptables -t filter -A nova-compute-inst-04 -m state --state INVALID -j DROP
+iptables -t filter -A nova-compute-inst-04 -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -t filter -A nova-compute-inst-04 -j nova-compute-provider
+iptables -t filter -A nova-compute-inst-04 -s 10.0.2.3/32 -p udp -m udp --sport 67 --dport 68 -j ACCEPT
+iptables -t filter -A nova-compute-inst-04 -j nova-compute-sg-fallback
+iptables -t filter -A nova-compute-local -d 10.0.2.84/32 -j nova-compute-inst-04
+iptables -t filter -A nova-compute-sg-fallback -j DROP
+iptables -t filter -A nova-filter-top -j nova-compute-local
+
+iptables -t filter -I nova-compute-inst-04 5 -p tcp -m tcp --dport 22 -j ACCEPT
+iptables -t filter -I nova-compute-inst-04 5 -p icmp -j ACCEPT
+iptables -t filter -A nova-compute-inst-04 5 -s 10.0.2.0/24 -j ACCEPT
+
 -----------------------------------------
 add a router between tenant1 and tenant2
 -----------------------------------------
@@ -476,9 +514,46 @@ ip netns exec qrouter01 ip link set qr02 up
 ip netns exec qrouter01 ip -4 addr add 10.0.1.1/24 brd 10.0.1.255 scope global dev qr02
 
 
+-------------------------------------------
+add a firewall between tenant1 and tenant2
+-------------------------------------------
+
+ip netns exec qrouter01 iptables -F
+ip netns exec qrouter01 iptables -X
+ip netns exec qrouter01 iptables -Z
+ip netns exec qrouter01 iptables -t filter -P INPUT ACCEPT
+ip netns exec qrouter01 iptables -t filter -P FORWARD ACCEPT
+ip netns exec qrouter01 iptables -t filter -P OUTPUT ACCEPT
+ip netns exec qrouter01 iptables -t filter -N neutron-filter-top
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-FORWARD
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-INPUT
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-fwaas-defau
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-iv01
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-local
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-ov01
+ip netns exec qrouter01 iptables -t filter -A INPUT -j neutron-l3-agent-INPUT
+ip netns exec qrouter01 iptables -t filter -A FORWARD -j neutron-filter-top
+ip netns exec qrouter01 iptables -t filter -A FORWARD -j neutron-l3-agent-FORWARD
+ip netns exec qrouter01 iptables -t filter -A OUTPUT -j neutron-filter-top
+ip netns exec qrouter01 iptables -t filter -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -t filter -A neutron-filter-top -j neutron-l3-agent-local
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-FORWARD -o qr+ -j neutron-l3-agent-iv01
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-FORWARD -i qr+ -j neutron-l3-agent-ov01
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-FORWARD -o qr+ -j neutron-l3-agent-fwaas-defau
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-FORWARD -i qr+ -j neutron-l3-agent-fwaas-defau
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-INPUT -d 127.0.0.1/32 -p tcp -m tcp --dport 9697 -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-fwaas-defau -j DROP
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -m state --state INVALID -j DROP
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -m state --state RELATED,ESTABLISHED -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -m state --state INVALID -j DROP
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
 
-
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -p icmp -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -p icmp -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -p tcp -m tcp --dport ssh -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -p tcp -m tcp --dport ssh -j ACCEPT
 
 
 
