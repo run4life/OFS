@@ -122,8 +122,6 @@ ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=21,act
 
 ovs-vsctl --timeout=10 -- --may-exist add-port br-tun gre-0a060605 -- set Interface gre-0a060605 type=gre options:remote_ip=10.255.254.101 options:local_ip=10.255.254.100 options:in_key=flow options:out_key=flow
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,actions=resubmit(,2)"
-ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
 ovs-vsctl -- --if-exists del-port tap01 -- add-port br-int tap01 -- set interface tap01 type=internal
 ovs-vsctl --timeout=10 set Port tap01 tag=1
@@ -184,8 +182,6 @@ ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=21,act
 
 ovs-vsctl --timeout=10 -- --may-exist add-port br-tun gre-0a060604 -- set Interface gre-0a060604 type=gre options:remote_ip=10.255.254.100 options:local_ip=10.255.254.101 options:in_key=flow options:out_key=flow
 ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,actions=resubmit(,2)"
-ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
-ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
 ip link set dev br-int up
 ip link set dev br-tun up
@@ -198,8 +194,12 @@ iptables -F
 --------------
 
 #add cmd and flows in network node
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
 #add cmd and flows in compute node
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
 
 #start vm01
 brctl addbr qbr01
