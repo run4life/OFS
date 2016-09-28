@@ -1,0 +1,702 @@
+Build tunnel and vlan networks env
+
+virtualbox vms infomations:													
+
+mgmt-net:Manager network
+tunnel-net:Tunnel Network
+vlan-net:Vlan network
+ext-net:External network
+
+network node: centos7
+	mgmt-net:eth0(10.255.255.20) host-only
+	tunnel-net:eth1(10.255.254.100) host-only	
+	vlan-net:eth2 internel
+	ext-net:eth3 host-only
+
+compute node: centos7
+	mgmt-net:eth0(10.255.255.21) host-only
+	tunnel-net:eth1(10.255.254.101) host-only
+	vlan-net:eth2 internel
+
+
+tenant1: GRE tunnel, gateway:10.0.0.1, dhcp:10.0.0.3
+		vm1:52:54:00:12:34:60
+		vm2:52:54:00:12:34:61
+
+tenant2: GRE tunnel, gateway:10.0.1.1 dhcp:10.0.1.3
+		vm3:52:54:00:12:34:62
+
+tenant3: vlan 103, gateway:10.0.2.1 dhcp:10.0.2.3
+		vm4:52:54:00:12:34:63
+
+cirros-0.3.4-x86_64		cirros/cubswin:)
+
+#on host server
+iptables -t nat -I POSTROUTING -s 10.255.255.0/24 -j MASQUERADE
+iptables -t nat -I POSTROUTING -s 10.255.253.0/24 -j MASQUERADE
+sysctl net.ipv4.ip_forward=1
+
+vi /etc/hostname
+
+vim /etc/sysconfig/grub
+net.ifnames=0 biosdevname=0
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+chkconfig NetworkManager off
+ssh-keygen -t dsa -P '' -f /etc/ssh/ssh_host_dsa_key
+ssh-keygen -t rsa -P '' -f /etc/ssh/ssh_host_rsa_key
+vi /etc/selinux/config
+reboot
+
+#install openvswitch
+yum -y install wget openssl-devel kernel-devel
+yum -y groupinstall "Development Tools"
+adduser ovswitch
+su - ovswitch
+wget http://openvswitch.org/releases/openvswitch-2.4.0.tar.gz
+tar xfz openvswitch-2.4.0.tar.gz
+mkdir -p ~/rpmbuild/SOURCES
+cp openvswitch-2.4.0.tar.gz /home/ovswitch/rpmbuild/SOURCES/
+rpmbuild -bb --without check ~/openvswitch-2.4.0/rhel/openvswitch.spec
+exit
+yum -y localinstall /home/ovswitch/rpmbuild/RPMS/x86_64/openvswitch-2.4.0-1.x86_64.rpm
+
+#install qemu
+yum -y install bridge-utils
+yum -y install gcc
+yum -y install zlib-devel
+yum -y install glib2-devel
+yum -y install pixman
+yum -y install pixman-devel
+
+git clone git://git.qemu-project.org/qemu.git
+cd qemu 
+./configure --enable-debug --enable-vnc --enable-werror --target-list="x86_64-softmmu" 
+make -j8 
+sudo make install
+wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img
+wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-kernel
+
+
+-------------------------
+node2(network)
+-------------------------
+
+ovs-vsctl --timeout=10 -- --may-exist add-br br-int
+ovs-vsctl --timeout=10 -- set-fail-mode br-int secure
+ovs-vsctl --timeout=10 -- --if-exists del-port br-int patch-tun
+
+ovs-ofctl del-flows br-int
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=1,actions=normal"
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=0,table=22,actions=drop"
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-tun
+ovs-vsctl --timeout=10 -- --may-exist add-br br-tun
+ovs-vsctl --timeout=10 add-port br-int patch-tun -- set Interface patch-tun type=patch options:peer=patch-int 
+ovs-vsctl --timeout=10 add-port br-tun patch-int -- set Interface patch-int type=patch options:peer=patch-tun 
+
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-eth2
+ovs-vsctl --timeout=10 -- --may-exist add-br br-eth2
+ovs-vsctl add-port br-eth2 eth2
+ovs-vsctl --timeout=10 add-port br-int int-br-eth2 -- set Interface int-br-eth2 type=patch options:peer=phy-br-eth2 
+ovs-vsctl --timeout=10 add-port br-eth2 phy-br-eth2 -- set Interface phy-br-eth2 type=patch options:peer=int-br-eth2 
+
+
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
+
+ovs-ofctl del-flows br-eth2
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=1,actions=normal"
+
+ovs-ofctl del-flows br-tun
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=1,actions=resubmit(,1)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=1,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00,actions=resubmit(,20)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=1,dl_dst=01:00:00:00:00:00/01:00:00:00:00:00,actions=resubmit(,21)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=2,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=3,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=10,actions=learn(table=20,priority=1,hard_timeout=300,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0->NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]->NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=20,actions=resubmit(,21)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=21,actions=drop"
+
+ovs-vsctl --timeout=10 -- --may-exist add-port br-tun gre-0a060605 -- set Interface gre-0a060605 type=gre options:remote_ip=10.255.254.101 options:local_ip=10.255.254.100 options:in_key=flow options:out_key=flow
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,actions=resubmit(,2)"
+
+ovs-vsctl -- --if-exists del-port tap01 -- add-port br-int tap01 -- set interface tap01 type=internal
+ovs-vsctl --timeout=10 set Port tap01 tag=1
+ip netns add qdhcp01
+ip netns exec qdhcp01 ip link set lo up
+ip link set tap01 netns qdhcp01
+ip netns exec qdhcp01 ip link set tap01 up
+ip netns exec qdhcp01 ip -4 addr add 10.0.0.3/24 brd 10.0.0.255 scope global dev tap01
+ip netns exec qdhcp01 ip route replace default via 10.0.0.1 dev tap01
+ip netns exec qdhcp01 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap01 --except-interface=lo --dhcp-range=set:tag0,10.0.0.6,10.0.0.90,86400s --dhcp-lease-max=256 --dhcp-option=3,10.0.0.1
+
+ip link set dev br-int up
+ip link set dev br-tun up
+ip link set dev br-eth2 up
+ip link set dev eth2 up
+ip link set dev eth3 up
+iptables -F
+
+
+--------------------------
+node1(compute node)
+--------------------------
+ovs-vsctl --timeout=10 -- --if-exists del-port br-int patch-tun
+ovs-vsctl --timeout=10 -- --may-exist add-br br-int
+ovs-vsctl --timeout=10 -- set-fail-mode br-int secure
+
+ovs-ofctl del-flows br-int
+ovs-ofctl add-flow br-int hard_timeout=0,idle_timeout=0,priority=1,actions=normal
+ovs-ofctl add-flow br-int hard_timeout=0,idle_timeout=0,priority=0,table=22,actions=drop
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-tun
+ovs-vsctl --timeout=10 -- --may-exist add-br br-tun
+ovs-vsctl --timeout=10 add-port br-int patch-tun -- set Interface patch-tun type=patch options:peer=patch-int
+ovs-vsctl --timeout=10 add-port br-tun patch-int -- set Interface patch-int type=patch options:peer=patch-tun
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-eth2
+ovs-vsctl --timeout=10 -- --may-exist add-br br-eth2
+ovs-vsctl add-port br-eth2 eth2
+ovs-vsctl --timeout=10 add-port br-int int-br-eth2 -- set Interface int-br-eth2 type=patch options:peer=phy-br-eth2 
+ovs-vsctl --timeout=10 add-port br-eth2 phy-br-eth2 -- set Interface phy-br-eth2 type=patch options:peer=int-br-eth2 
+
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
+
+ovs-ofctl del-flows br-eth2
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=2,in_port=2,actions=drop"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=1,actions=normal"
+
+ovs-ofctl del-flows br-tun
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=1,actions=resubmit(,1)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=1,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00,actions=resubmit(,20)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=1,dl_dst=01:00:00:00:00:00/01:00:00:00:00:00,actions=resubmit(,21)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=2,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=3,actions=drop"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=10,actions=learn(table=20,priority=1,hard_timeout=300,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0->NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]->NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=20,actions=resubmit(,21)"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=0,table=21,actions=drop"
+
+ovs-vsctl --timeout=10 -- --may-exist add-port br-tun gre-0a060604 -- set Interface gre-0a060604 type=gre options:remote_ip=10.255.254.100 options:local_ip=10.255.254.101 options:in_key=flow options:out_key=flow
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,in_port=2,actions=resubmit(,2)"
+
+ip link set dev br-int up
+ip link set dev br-tun up
+ip link set dev br-eth2 up
+ip link set dev eth2 up
+iptables -F
+
+--------------
+#tenant 1
+--------------
+
+#add cmd and flows in network node
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
+
+#add cmd and flows in compute node
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=1,actions=strip_vlan,set_tunnel:1,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=1,actions=mod_vlan_vid:1,resubmit(,10)"
+
+#start vm01
+brctl addbr qbr01
+ip link set qbr01 up
+ip link add qvo01 type veth peer name qvb01
+brctl addif qbr01 qvb01
+ovs-vsctl add-port br-int qvo01
+ip link set qvb01 up
+ip link set qvo01 up
+ovs-vsctl set port qvo01 tag=1
+ip tuntap add tap01 mode tap
+ip link set dev tap01 up
+brctl addif qbr01 tap01
+cp cirros-0.3.4-x86_64-disk.img cirros-vm1.img
+cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm1
+qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm1 -hda cirros-vm1.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:60 -net tap,ifname="tap01",script=no,downscript=no
+
+#start vm02
+brctl addbr qbr02
+ip link set qbr02 up
+ip link add qvo02 type veth peer name qvb02
+brctl addif qbr02 qvb02
+ovs-vsctl add-port br-int qvo02
+ip link set qvb02 up
+ip link set qvo02 up
+ovs-vsctl set port qvo02 tag=1
+ip tuntap add tap02 mode tap
+ip link set dev tap02 up
+brctl addif qbr02 tap02
+
+cp cirros-0.3.4-x86_64-disk.img cirros-vm2.img
+cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm2
+qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm2 -hda cirros-vm2.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:61 -net tap,ifname="tap02",script=no,downscript=no
+
+--------------
+#tenant 2
+--------------
+
+#add cmd and flows in network node
+
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=2,actions=strip_vlan,set_tunnel:2,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=2,actions=mod_vlan_vid:2,resubmit(,10)"
+
+ovs-vsctl -- --if-exists del-port tap02 -- add-port br-int tap02 -- set interface tap02 type=internal
+ovs-vsctl --timeout=10 set Port tap02 tag=2
+ip netns add qdhcp02
+ip netns exec qdhcp02 ip link set lo up
+ip link set tap02 netns qdhcp02
+ip netns exec qdhcp02 ip link set tap02 up
+ip netns exec qdhcp02 ip -4 addr add 10.0.1.3/24 brd 10.0.1.255 scope global dev tap02
+ip netns exec qdhcp02 ip route replace default via 10.0.1.1 dev tap02
+ip netns exec qdhcp02 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap02 --except-interface=lo --dhcp-range=set:tag0,10.0.1.6,10.0.1.90,86400s --dhcp-lease-max=256 --dhcp-option=3,10.0.1.1
+
+
+#add cmd and flows in compute node
+
+ovs-ofctl mod-flows br-tun "table=21,dl_vlan=2,actions=strip_vlan,set_tunnel:2,output:2"
+ovs-ofctl add-flow br-tun "hard_timeout=0,idle_timeout=0,priority=1,table=2,tun_id=2,actions=mod_vlan_vid:2,resubmit(,10)"
+
+brctl addbr qbr03
+ip link set qbr03 up
+ip link add qvo03 type veth peer name qvb03
+brctl addif qbr03 qvb03
+ovs-vsctl add-port br-int qvo03
+ip link set qvb03 up
+ip link set qvo03 up
+ovs-vsctl set port qvo03 tag=2
+ip tuntap add tap03 mode tap
+ip link set dev tap03 up
+brctl addif qbr03 tap03
+
+cp cirros-0.3.4-x86_64-disk.img cirros-vm3.img
+cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm3
+qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm3 -hda cirros-vm3.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:62 -net tap,ifname="tap03",script=no,downscript=no
+
+--------------
+#tenant 3
+--------------
+
+#add cmd and flows in network node
+
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,dl_vlan=103,actions=mod_vlan_vid:3,NORMAL"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=4,in_port=2,dl_vlan=3,actions=mod_vlan_vid:103,NORMAL"
+
+ovs-vsctl -- --if-exists del-port tap03 -- add-port br-int tap03 -- set interface tap03 type=internal
+ovs-vsctl --timeout=10 set Port tap03 tag=3
+ip netns add qdhcp03
+ip netns exec qdhcp03 ip link set lo up
+ip link set tap03 netns qdhcp03
+ip netns exec qdhcp03 ip link set tap03 up
+ip netns exec qdhcp03 ip -4 addr add 10.0.2.3/24 brd 10.0.2.255 scope global dev tap03
+ip netns exec qdhcp03 ip route replace default via 10.0.2.1 dev tap03
+ip netns exec qdhcp03 dnsmasq --no-hosts --no-resolv --strict-order --bind-interfaces --interface=tap03 --except-interface=lo --dhcp-range=set:tag0,10.0.2.6,10.0.2.90,86400s --dhcp-lease-max=256 --dhcp-option=3,10.0.2.1
+
+#add cmd and flows in compute node
+
+ovs-ofctl add-flow br-int "hard_timeout=0,idle_timeout=0,priority=3,in_port=2,dl_vlan=103,actions=mod_vlan_vid:3,NORMAL"
+ovs-ofctl add-flow br-eth2 "hard_timeout=0,idle_timeout=0,priority=4,in_port=2,dl_vlan=3,actions=mod_vlan_vid:103,NORMAL"
+
+brctl addbr qbr04
+ip link set qbr04 up
+ip link add qvo04 type veth peer name qvb04
+brctl addif qbr04 qvb04
+ovs-vsctl add-port br-int qvo04
+ip link set qvb04 up
+ip link set qvo04 up
+ovs-vsctl set port qvo04 tag=3
+ip tuntap add tap04 mode tap
+ip link set dev tap04 up
+brctl addif qbr04 tap04
+
+cp cirros-0.3.4-x86_64-disk.img cirros-vm4.img
+cp cirros-0.3.4-x86_64-kernel cirros-kernel-vm4
+qemu-system-x86_64 -nographic -kernel ./cirros-kernel-vm4 -hda cirros-vm4.img -append "root=/dev/sda1 console=ttyS0" -net nic,macaddr=52:54:00:12:34:63 -net tap,ifname="tap04",script=no,downscript=no
+
+
+
+----------------------
+add L3 router for vm4
+----------------------
+vm4	fixip:10.0.2.84		floating ip:10.255.253.84
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-ex
+ovs-vsctl --timeout=10 -- --may-exist add-br br-ex
+ovs-vsctl add-port br-ex eth3
+ip link set dev eth3 up
+ip link set dev br-ex up
+
+ovs-vsctl -- --if-exists del-port qr03 -- add-port br-int qr03 -- set interface qr03 type=internal
+ovs-vsctl --timeout=10 set Port qr03 tag=3
+ip netns add qrouter02
+ip netns exec qrouter02 ip link set lo up
+ip link set qr03 netns qrouter02
+ip netns exec qrouter02 ip link set qr03 up
+ip netns exec qrouter02 ip -4 addr add 10.0.2.1/24 brd 10.0.2.255 scope global dev qr03
+
+ovs-vsctl -- --if-exists del-port qg02 -- add-port br-ex qg02 -- set interface qg02 type=internal
+ip link set qg02 netns qrouter02
+ip netns exec qrouter02 ip link set qg02 up
+ip netns exec qrouter02 ip -4 addr add 10.255.253.11/24 brd 10.255.253.255 scope global dev qg02
+ip netns exec qrouter02 ip route replace default via 10.255.253.1 dev qg02
+ip netns exec qrouter02 sysctl -w net.ipv4.ip_forward=1
+
+ip netns exec qrouter02 iptables -N neutron-filter-top
+ip netns exec qrouter02 iptables -A FORWARD -j neutron-filter-top
+ip netns exec qrouter02 iptables -A OUTPUT -j neutron-filter-top
+ip netns exec qrouter02 iptables -N neutron-l3-agent-local
+ip netns exec qrouter02 iptables -A neutron-filter-top -j neutron-l3-agent-local
+
+ip netns exec qrouter02 iptables -N neutron-l3-agent-INPUT
+ip netns exec qrouter02 iptables -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter02 iptables -N neutron-l3-agent-FORWARD
+ip netns exec qrouter02 iptables -A INPUT -j neutron-l3-agent-INPUT
+ip netns exec qrouter02 iptables -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter02 iptables -A FORWARD -j neutron-l3-agent-FORWARD
+
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-PREROUTING
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-POSTROUTING
+ip netns exec qrouter02 iptables -t nat -A PREROUTING -j neutron-l3-agent-PREROUTING
+ip netns exec qrouter02 iptables -t nat -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter02 iptables -t nat -A POSTROUTING -j neutron-l3-agent-POSTROUTING
+
+ip netns exec qrouter02 iptables -t nat -N neutron-postrouting-bottom
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-snat
+ip netns exec qrouter02 iptables -t nat -N neutron-l3-agent-float-snat
+ip netns exec qrouter02 iptables -t nat -A POSTROUTING -j neutron-postrouting-bottom
+ip netns exec qrouter02 iptables -t nat -A neutron-postrouting-bottom -j neutron-l3-agent-snat
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-snat -j neutron-l3-agent-float-snat
+
+ip netns exec qrouter02 iptables -A neutron-l3-agent-INPUT -s 0.0.0.0/0 -d 127.0.0.1 -p tcp -m tcp --dport 9697 -j ACCEPT
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-PREROUTING -s 0.0.0.0/0 -d 169.254.169.254/32 -p tcp -m tcp --dport 80 -j REDIRECT --to-port 9697
+
+#ip netns exec qrouter02 iptables-save -c
+#ip netns exec qrouter02 iptables-restore -c
+
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-snat -j neutron-l3-agent-float-snat
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-POSTROUTING ! -i qg02 ! -o qg02 -m conntrack ! --ctstate DNAT -j ACCEPT
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-snat -s 10.0.2.0/24 -j SNAT --to-source 10.255.253.11
+
+ip netns exec qrouter02 ip -4 addr add 10.255.253.84/24 brd 10.255.253.255 scope global dev qg02
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-PREROUTING -d 10.255.253.84/32 -j DNAT --to 10.0.2.84
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-OUTPUT -d 10.255.253.84/32 -j DNAT --to 10.0.2.84
+ip netns exec qrouter02 iptables -t nat -A neutron-l3-agent-float-snat -s 10.0.2.84 -j SNAT --to 10.255.253.84
+
+
+------------------------------------
+add security group(neutron) for vm4
+------------------------------------
+#open bridge iptables function
+sysctl -w net.bridge.bridge-nf-call-arptables=1
+sysctl -w net.bridge.bridge-nf-call-ip6tables=1
+sysctl -w net.bridge.bridge-nf-call-iptables=1
+
+iptables -F
+iptables -X
+iptables -Z
+
+iptables -t filter -N neutron-filter-top
+
+iptables -t filter -N neutron-openvswi-FORWARD
+iptables -t filter -N neutron-openvswi-INPUT
+iptables -t filter -N neutron-openvswi-OUTPUT
+
+iptables -t filter -N neutron-openvswi-i04
+iptables -t filter -N neutron-openvswi-local
+
+iptables -t filter -N neutron-openvswi-o04
+iptables -t filter -N neutron-openvswi-s04
+iptables -t filter -N neutron-openvswi-sg-chain
+iptables -t filter -N neutron-openvswi-sg-fallback
+
+iptables -t filter -A INPUT -j neutron-openvswi-INPUT
+iptables -t filter -A FORWARD -j neutron-filter-top
+
+iptables -t filter -A FORWARD -j neutron-openvswi-FORWARD
+iptables -t filter -A OUTPUT -j neutron-filter-top
+
+iptables -t filter -A OUTPUT -j neutron-openvswi-OUTPUT
+iptables -t filter -A neutron-filter-top -j neutron-openvswi-local
+
+iptables -t filter -A neutron-openvswi-FORWARD -m physdev --physdev-out tap04 --physdev-is-bridged -j neutron-openvswi-sg-chain
+iptables -t filter -A neutron-openvswi-FORWARD -m physdev --physdev-in tap04 --physdev-is-bridged -j neutron-openvswi-sg-chain
+iptables -t filter -A neutron-openvswi-INPUT -m physdev --physdev-in tap04 --physdev-is-bridged -j neutron-openvswi-o04
+
+iptables -t filter -A neutron-openvswi-i04 -m state --state INVALID -j DROP
+iptables -t filter -A neutron-openvswi-i04 -m state --state RELATED,ESTABLISHED -j RETURN
+iptables -t filter -A neutron-openvswi-i04 -s 10.0.2.3/32 -p udp -m udp --sport 67 --dport 68 -j RETURN
+iptables -t filter -A neutron-openvswi-i04 -j neutron-openvswi-sg-fallback
+
+iptables -t filter -A neutron-openvswi-o04 -p udp -m udp --sport 68 --dport 67 -j RETURN
+iptables -t filter -A neutron-openvswi-o04 -j neutron-openvswi-s04
+iptables -t filter -A neutron-openvswi-o04 -p udp -m udp --sport 67 --dport 68 -j DROP
+iptables -t filter -A neutron-openvswi-o04 -m state --state INVALID -j DROP
+iptables -t filter -A neutron-openvswi-o04 -m state --state RELATED,ESTABLISHED -j RETURN
+iptables -t filter -A neutron-openvswi-o04 -j neutron-openvswi-sg-fallback
+
+iptables -t filter -A neutron-openvswi-s04 -s 10.0.2.84/32 -m mac --mac-source 52:54:00:12:34:63 -j RETURN
+iptables -t filter -A neutron-openvswi-s04 -j DROP
+iptables -t filter -A neutron-openvswi-sg-chain -m physdev --physdev-out tap04 --physdev-is-bridged -j neutron-openvswi-i04
+iptables -t filter -A neutron-openvswi-sg-chain -m physdev --physdev-in tap04 --physdev-is-bridged -j neutron-openvswi-o04
+iptables -t filter -A neutron-openvswi-sg-chain -j ACCEPT
+
+iptables -t filter -A neutron-openvswi-sg-fallback -j DROP
+
+
+#add security group rules
+#open ping,ssh,http port
+iptables -t filter -I neutron-openvswi-o04 6 -p icmp -j RETURN
+iptables -t filter -I neutron-openvswi-i04 4 -p icmp -j RETURN
+iptables -t filter -I neutron-openvswi-o04 6 -p tcp -m tcp --dport 22 -j RETURN
+iptables -t filter -I neutron-openvswi-i04 4 -p tcp -m tcp --dport 22 -j RETURN
+iptables -t filter -I neutron-openvswi-i04 4 -p tcp -m tcp --dport 80 -j RETURN
+iptables -t filter -I neutron-openvswi-o04 6 -p tcp -m tcp --dport 80 -j RETURN
+
+
+------------------------------------
+add security group(nova) for vm4
+------------------------------------
+
+iptables -F
+iptables -X
+iptables -Z
+
+iptables -t filter -N nova-compute-FORWARD
+iptables -t filter -N nova-compute-INPUT
+iptables -t filter -N nova-compute-OUTPUT
+iptables -t filter -N nova-compute-inst-04
+iptables -t filter -N nova-compute-local
+iptables -t filter -N nova-compute-provider
+iptables -t filter -N nova-compute-sg-fallback
+iptables -t filter -N nova-filter-top
+iptables -t filter -A INPUT -j nova-compute-INPUT
+iptables -t filter -A FORWARD -j nova-filter-top
+iptables -t filter -A FORWARD -j nova-compute-FORWARD
+iptables -t filter -A OUTPUT -j nova-filter-top
+iptables -t filter -A OUTPUT -j nova-compute-OUTPUT
+iptables -t filter -A nova-compute-FORWARD -s 0.0.0.0/32 -d 255.255.255.255/32 -p udp -m udp --sport 68 --dport 67 -j ACCEPT
+iptables -t filter -A nova-compute-INPUT -s 0.0.0.0/32 -d 255.255.255.255/32 -p udp -m udp --sport 68 --dport 67 -j ACCEPT
+iptables -t filter -A nova-compute-inst-04 -m state --state INVALID -j DROP
+iptables -t filter -A nova-compute-inst-04 -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -t filter -A nova-compute-inst-04 -j nova-compute-provider
+iptables -t filter -A nova-compute-inst-04 -s 10.0.2.3/32 -p udp -m udp --sport 67 --dport 68 -j ACCEPT
+iptables -t filter -A nova-compute-inst-04 -j nova-compute-sg-fallback
+iptables -t filter -A nova-compute-local -d 10.0.2.84/32 -j nova-compute-inst-04
+iptables -t filter -A nova-compute-sg-fallback -j DROP
+iptables -t filter -A nova-filter-top -j nova-compute-local
+
+iptables -t filter -I nova-compute-inst-04 5 -p tcp -m tcp --dport 22 -j ACCEPT
+iptables -t filter -I nova-compute-inst-04 5 -p icmp -j ACCEPT
+iptables -t filter -A nova-compute-inst-04 5 -s 10.0.2.0/24 -j ACCEPT
+
+-----------------------------------------
+add a router between tenant1 and tenant2
+-----------------------------------------
+#tenant1 add to qrouter01,gateway:10.0.0.1 
+#add cmd and flows in network node
+ovs-vsctl -- --if-exists del-port qr01 -- add-port br-int qr01 -- set interface qr01 type=internal
+ovs-vsctl --timeout=10 set Port qr01 tag=1
+ip netns add qrouter01
+ip netns exec qrouter01 ip link set lo up
+ip link set qr01 netns qrouter01
+ip netns exec qrouter01 ip link set qr01 up
+ip netns exec qrouter01 ip -4 addr add 10.0.0.1/24 brd 10.0.0.255 scope global dev qr01
+ip netns exec qrouter01 sysctl -w net.ipv4.ip_forward=1
+
+#tenant2 add to qrouter01,gateway:10.0.1.1
+ovs-vsctl -- --if-exists del-port qr02 -- add-port br-int qr02 -- set interface qr02 type=internal
+ovs-vsctl --timeout=10 set Port qr02 tag=2
+ip link set qr02 netns qrouter01
+ip netns exec qrouter01 ip link set qr02 up
+ip netns exec qrouter01 ip -4 addr add 10.0.1.1/24 brd 10.0.1.255 scope global dev qr02
+
+
+-------------------------------------------
+add a firewall between tenant1 and tenant2
+-------------------------------------------
+
+ip netns exec qrouter01 iptables -F
+ip netns exec qrouter01 iptables -X
+ip netns exec qrouter01 iptables -Z
+ip netns exec qrouter01 iptables -t filter -P INPUT ACCEPT
+ip netns exec qrouter01 iptables -t filter -P FORWARD ACCEPT
+ip netns exec qrouter01 iptables -t filter -P OUTPUT ACCEPT
+ip netns exec qrouter01 iptables -t filter -N neutron-filter-top
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-FORWARD
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-INPUT
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-fwaas-defau
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-iv01
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-local
+ip netns exec qrouter01 iptables -t filter -N neutron-l3-agent-ov01
+ip netns exec qrouter01 iptables -t filter -A INPUT -j neutron-l3-agent-INPUT
+ip netns exec qrouter01 iptables -t filter -A FORWARD -j neutron-filter-top
+ip netns exec qrouter01 iptables -t filter -A FORWARD -j neutron-l3-agent-FORWARD
+ip netns exec qrouter01 iptables -t filter -A OUTPUT -j neutron-filter-top
+ip netns exec qrouter01 iptables -t filter -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -t filter -A neutron-filter-top -j neutron-l3-agent-local
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-FORWARD -o qr+ -j neutron-l3-agent-iv01
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-FORWARD -i qr+ -j neutron-l3-agent-ov01
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-FORWARD -o qr+ -j neutron-l3-agent-fwaas-defau
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-FORWARD -i qr+ -j neutron-l3-agent-fwaas-defau
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-INPUT -d 127.0.0.1/32 -p tcp -m tcp --dport 9697 -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-fwaas-defau -j DROP
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -m state --state INVALID -j DROP
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -m state --state RELATED,ESTABLISHED -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -m state --state INVALID -j DROP
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -p icmp -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -p icmp -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-iv01 -p tcp -m tcp --dport ssh -j ACCEPT
+ip netns exec qrouter01 iptables -t filter -A neutron-l3-agent-ov01 -p tcp -m tcp --dport ssh -j ACCEPT
+
+
+--------------------------------------------
+add a load balance for tenant1 vm1 and vm2
+--------------------------------------------
+
+yum install -y haproxy
+
+ovs-vsctl -- --if-exists del-port tap04 -- add-port br-int tap04 -- set interface tap04 type=internal
+ovs-vsctl set Port tap04 tag=1
+ip link set tap04 address fa:16:3e:f4:8f:ae
+
+ip netns add qlbaas-01
+ip netns exec qlbaas-01 sysctl -w net.ipv4.conf.all.promote_secondaries=1
+ip link set tap04 netns qlbaas-01
+ip netns exec qlbaas-01 ip link set lo up
+ip netns exec qlbaas-01 ip link set tap04 up
+ip netns exec qlbaas-01 ip addr show tap04 permanent scope global
+ip netns exec qlbaas-01 ip -4 addr add 10.0.0.100/24 brd 10.0.0.255 scope global dev tap04
+ip netns exec qlbaas-01 ip route list dev tap04 scope link
+ip netns exec qlbaas-01 route add default gw 10.0.0.1
+ip netns exec qlbaas-01 arping -U -I tap04 -c 3 10.0.0.100
+
+mkdir -p /var/lib/neutron/lbaas/
+
+vi haproxy.cfg
+
+global
+        daemon
+        user haproxy
+        group haproxy
+        log /dev/log local0
+        log /dev/log local1 notice
+        stats socket /root/sock mode 0666 level user
+
+defaults
+        log global
+        retries 3
+        option redispatch
+        timeout connect 5000
+        timeout client 50000
+        timeout server 50000
+
+frontend 0c32d37d-f84a-4309-9e01-72d9f0bac69e
+        option tcplog
+        bind 10.0.0.100:80
+        mode http
+        default_backend 3b9d8ebd-9eea-4925-b14e-593a6111ff33
+        maxconn 100
+        option forwardfor
+
+backend 3b9d8ebd-9eea-4925-b14e-593a6111ff33
+        mode http
+        balance roundrobin
+        option forwardfor
+        timeout check 5s
+        server 1f74a288-937d-4804-9ded-472a5d1110dc 10.0.0.81:80 weight 1 check inter 5s fall 3
+        server 944ff4a0-4070-40e4-8189-20f385755113 10.0.0.82:80 weight 1 check inter 5s fall 3
+
+
+ip netns exec qlbaas-01 haproxy -f /root/haproxy.cfg -p /root/pid
+
+#while true; do echo -e 'HTTP/1.0 200 OK\r\n\r\nserver_81' | sudo nc -l -p 80; done
+#while true; do echo -e 'HTTP/1.0 200 OK\r\n\r\nserver_82' | sudo nc -l -p 80; done
+#ip netns exec qlbaas-01 wget http://10.0.0.100
+
+---------------------------------------
+add a floating ip for load balance VIP
+---------------------------------------
+
+ovs-vsctl --timeout=10 -- --if-exists del-br br-ex
+ovs-vsctl --timeout=10 -- --may-exist add-br br-ex
+ovs-vsctl add-port br-ex eth3
+ip link set dev eth3 up
+ip link set dev br-ex up
+
+ovs-vsctl -- --if-exists del-port qr01 -- add-port br-int qr01 -- set interface qr01 type=internal
+ovs-vsctl --timeout=10 set Port qr01 tag=1
+ip netns add qrouter01
+ip netns exec qrouter01 ip link set lo up
+ip link set qr01 netns qrouter01
+ip netns exec qrouter01 ip link set qr01 up
+ip netns exec qrouter01 ip -4 addr add 10.0.0.1/24 brd 10.0.0.255 scope global dev qr01
+
+ovs-vsctl -- --if-exists del-port qg01 -- add-port br-ex qg01 -- set interface qg01 type=internal
+ip link set qg01 netns qrouter01
+ip netns exec qrouter01 ip link set qg01 up
+ip netns exec qrouter01 ip -4 addr add 10.255.253.10/24 brd 10.255.253.255 scope global dev qg01
+ip netns exec qrouter01 ip route replace default via 10.255.253.1 dev qg01
+ip netns exec qrouter01 sysctl -w net.ipv4.ip_forward=1
+
+ip netns exec qrouter01 iptables -N neutron-filter-top
+ip netns exec qrouter01 iptables -A FORWARD -j neutron-filter-top
+ip netns exec qrouter01 iptables -A OUTPUT -j neutron-filter-top
+ip netns exec qrouter01 iptables -N neutron-l3-agent-local
+ip netns exec qrouter01 iptables -A neutron-filter-top -j neutron-l3-agent-local
+
+ip netns exec qrouter01 iptables -N neutron-l3-agent-INPUT
+ip netns exec qrouter01 iptables -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -N neutron-l3-agent-FORWARD
+ip netns exec qrouter01 iptables -A INPUT -j neutron-l3-agent-INPUT
+ip netns exec qrouter01 iptables -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -A FORWARD -j neutron-l3-agent-FORWARD
+
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-PREROUTING
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-POSTROUTING
+ip netns exec qrouter01 iptables -t nat -A PREROUTING -j neutron-l3-agent-PREROUTING
+ip netns exec qrouter01 iptables -t nat -A OUTPUT -j neutron-l3-agent-OUTPUT
+ip netns exec qrouter01 iptables -t nat -A POSTROUTING -j neutron-l3-agent-POSTROUTING
+
+ip netns exec qrouter01 iptables -t nat -N neutron-postrouting-bottom
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-snat
+ip netns exec qrouter01 iptables -t nat -N neutron-l3-agent-float-snat
+ip netns exec qrouter01 iptables -t nat -A POSTROUTING -j neutron-postrouting-bottom
+ip netns exec qrouter01 iptables -t nat -A neutron-postrouting-bottom -j neutron-l3-agent-snat
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-snat -j neutron-l3-agent-float-snat
+
+ip netns exec qrouter01 iptables -A neutron-l3-agent-INPUT -s 0.0.0.0/0 -d 127.0.0.1 -p tcp -m tcp --dport 9697 -j ACCEPT
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-PREROUTING -s 0.0.0.0/0 -d 169.254.169.254/32 -p tcp -m tcp --dport 80 -j REDIRECT --to-port 9697
+
+#ip netns exec qrouter01 iptables-save -c
+#ip netns exec qrouter01 iptables-restore -c
+
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-snat -j neutron-l3-agent-float-snat
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-POSTROUTING ! -i qg01 ! -o qg01 -m conntrack ! --ctstate DNAT -j ACCEPT
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-snat -s 10.0.0.0/24 -j SNAT --to-source 10.255.253.100
+
+ip netns exec qrouter01 ip -4 addr add 10.255.253.100/24 brd 10.255.253.255 scope global dev qg01
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-PREROUTING -d 10.255.253.100/32 -j DNAT --to 10.0.0.100
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-OUTPUT -d 10.255.253.100/32 -j DNAT --to 10.0.0.100
+ip netns exec qrouter01 iptables -t nat -A neutron-l3-agent-float-snat -s 10.0.0.100 -j SNAT --to 10.255.253.100
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
